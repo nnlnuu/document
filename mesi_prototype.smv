@@ -1,0 +1,194 @@
+-- 코드를 조금씩 확장해 가며 진행하기
+-- cpu 요청과 bus 요청이 충돌할때 어떻게 처리할지?? -> bus 요청이 우선 
+MODULE cache(port_input,message) 
+-- cache request는 cache에서 버스로 보내는 요청 
+-- cache response는 bus로부터 받은 요청에 대한 응답 및 반응(작업 수행)
+VAR
+    -- Part.1 cpu와 cache 간의 통신
+    cpu_request : {cpu_wr, cpu_rd,none}; -- cpu가 -> cache로 보내는 요청
+  
+    -- Part.2 cache와 bus 간의 통신
+    cache_request: {bus_rd, bus_rdx,invalidate,none}; -- cache send message -> bus :
+    -- cpu_request 와 state 를 보고 cache_request 를 결정 
+
+    cache_response : {bus_rd,bus_rdx,invalidate,none}; -- bus send message -> cache 
+     -- cache 가 bus 연결여부 체크 변수 
+        -- cache_port 가 open 되어 있어야 cache에서 bus 로 값을 내보낼 수 있음 
+
+    cache_port : {open,block,none};
+
+    -- Part.3 cache to cache 
+    ack : boolean; 
+    -- cache 간에 받았던 bus_rd 또는 bus_rdx 에 대한 반응을 공유하기 위해서 
+    task : {complete,yet,none};
+    -- Part.4 cache line 의 state 
+    state : {modified, exclusive, shared, invalid,i_trans};--,s_trans}; --iTm,sTm,iTs,iTe};
+
+ASSIGN
+    init(cache_port) := port_input;
+    next(cache_port) := case
+            task = yet : cache_port;
+            task = none : port_input;
+            TRUE : port_input;
+        esac;
+
+    init(task) := none;
+    next(task) := case
+            state = i_trans : yet;
+            state = modified | state = exclusive | state = shared : complete;
+            TRUE : none;
+        esac;
+
+
+    init(cpu_request) := none;
+    next(cpu_request) := case -- non_deterministic 하게, block된 상황에선 새로운 cpu_request를 차단 
+            cache_port = block : cpu_request; 
+            cache_port = open & state = i_trans : cpu_request; -- 전이 상태에서는 cpu_요청 차단 
+            
+            TRUE : {cpu_wr,cpu_rd,none};
+        esac;
+
+    init(cache_request):= none; -- cache가 bus에게 보내는 요청
+    next(cache_request):= case
+    -- cpu_request 와 state 를 보고 cache_request 를 결정 
+                cache_port = block : cache_request; 
+                -- cache에  없을 때 버스를 통해서 rd 나  rdx 요청 
+                state = invalid & cpu_request = cpu_wr : bus_rdx;
+                state = invalid & cpu_request = cpu_rd : bus_rd;
+                TRUE : none;
+            esac;
+
+    init(cache_response) := message; -- cache가 bus로 부터 받은 요청
+    next(cache_response) := message;
+
+    -- ack := ack_param;
+    
+    init(state) := invalid;
+    next(state) := case
+            -- state 가 변하는 건 외부의 요청에 따라서 달라짐 
+            -- 1. cpu request에 따라서 (cpu_request) -> 바로 다른 state 로 or transient state 로
+            
+            -- 2. cache 가 bus로부터 받은 요청이 무엇이냐에 따라서 (cache_response)
+            
+            -- 3. cpu-request 와 bus 상황에 따라서 (exclusive 또는 shared 상태가 되는 것)
+                -- 1.0 cpu_request = none 
+                cpu_request = none : state;
+
+                -- 1.1 invalid state --> bus를 통해 요청 
+                state = invalid & cpu_request = cpu_wr : i_trans;
+                state = invalid & cpu_request = cpu_rd : i_trans;
+                
+                -- 1.2 shared state -> 그대로 또는 변경 
+                state = shared & cpu_request = cpu_wr : modified; -- 다른 cache 한테 invalidate 보내기
+                state = shared & cpu_request = cpu_rd : shared; 
+                
+                -- 1.3 exclusive state -> 그대로
+                state = exclusive & cpu_request = cpu_wr : exclusive;
+                state = exclusive & cpu_request = cpu_rd : exclusive;
+
+                -- 1.4 modified state 
+                state = modified & cpu_request = cpu_wr : modified;
+                state = modified & cpu_request = cpu_rd : modified;
+
+                -- 1.5 i_trans state -> cpu_requset에 상관없이 그대로 유지
+                state = i_trans : state;
+
+                -- 2.0 cache_response = none
+                cache_response = none : state;
+
+                -- 2.1 invalid state
+                state = invalid & cache_response = bus_rdx : invalid;
+                state = invalid & cache_response = bus_rd : invalid;
+                state = invalid & cache_response = invalidate : invalid;
+
+                -- 2.2 shared to state
+                state = shared & cache_response = bus_rdx : invalid;
+                state = shared & cache_response = bus_rd : shared;
+                state = shared & cache_response = invalidate : invalid;
+
+                -- 2.3 exclusive state
+                state = exclusive & cache_response = bus_rdx : invalid;
+                state = exclusive & cache_response = bus_rd : shared;
+                state = exclusive & cache_response = invalidate : exclusive;
+
+                -- 2.4 modified state
+                state = modified & cache_response = bus_rdx : invalid;
+                state = modified & cache_response = bus_rd : shared;
+                -- state = modified & cache_response = invalidate 는 불가능 
+
+                -- 2.5 i_trans state
+                state = i_trans & ack = TRUE & cache_request = bus_rdx : modified;
+                state = i_trans & ack = TRUE & cache_request = bus_rd : shared;
+                state = i_trans & ack = FALSE & cache_request = bus_rd : exclusive;
+                state = i_trans & ack = FALSE & cache_request = bus_rdx : modified;
+
+                -- exclusive state가 되기 위해서 bus를 통해서 다른 cache에 요청한 bus_rd,bus_rdx 가 not shared 인지 확인이 필요     
+		esac;
+
+
+MODULE lane(port_param,message_param)
+VAR 
+    port : {open,block,none};
+    message : {bus_rd,bus_rdx,invalidate,none};
+ASSIGN
+    port := port_param;
+    message := message_param;
+
+MODULE system_bus(cache0,cache1) -- reply는 받는 값, request 는 보내는 값   
+    VAR 
+        arbiter : {p0,p1,low}; -- low 는 작업이 없는 상태 , p_n은 활성 port가 있는 상태 
+        port : array 0..1 of {open,block,none};
+        -- bus_message 는 cache로 부터 받은 요청 
+        bus_message : array 0..1 of {bus_rd,bus_rdx,invalidate,none};
+        --bus_message : {bus_rd,bus_rdx,invalidate,none};
+        -- lane_arr : array 0..1;
+        -- lane_arr[0] : lane(port[0],bus_message);
+        -- lane_arr[1] : lane(port[1],bus_message);
+    ASSIGN
+        init(arbiter):= low;
+        next(arbiter) := {low,p0,p1};
+                        -- case 
+                        --     arbiter = low : {p0,p1};
+                        --    -- TRUE : low;
+                        -- esac;
+        init(port[0]) := none;
+        next(port[0]) := case 
+                arbiter = p0 : open;
+                TRUE : block;
+            esac;
+        init(port[1]) := none;
+        next(port[1]) := case 
+                arbiter = p1 : open;
+                TRUE : block;
+            esac;
+        init(bus_message[0]) := none;
+        next(bus_message[0]) := case
+                arbiter = p0 : cache0.cache_request;
+                arbiter = p1 : cache1.cache_request;
+                TRUE : none;
+            esac;
+        init(bus_message[1]) := none;
+        next(bus_message[1]) := case
+                arbiter = p0 : cache0.cache_request;
+                arbiter = p1 : cache1.cache_request;
+                TRUE : none;
+                FALSE : none;
+            esac;
+
+
+
+
+----------------------- MODULE main ---------------------------
+MODULE main
+-- DEFINE
+--     ack0 := agent1.ack;
+--     ack1 := agent0.ack; 
+VAR 
+   -- agent : array 0..1 of cache(); --instace 4개 agent 라는 array 
+    agent0 : cache(bus.port[0],bus.bus_message[0]);
+    agent1 : cache(bus.port[1],bus.bus_message[1]);
+    -- ack0 : agent1.ack;
+    -- ack1 : agent0.ack; 
+    bus : system_bus(agent0,agent1);
+
+    
