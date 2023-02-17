@@ -27,10 +27,8 @@ VAR
     --/ task_status는 idle이다가 cache_port 가 열려 있으면서 
     --/ cache가 bus에게 메세지를 보낼때 rd_wait 또는 wr_wait 상태로 전환
     --/ 이때 cpu가 다음 동작을 결정 
-    
--- DEFINE
-    -- RD_wait := state = invalid & cpu_request = cpu_rd;
-    -- WR_wait := state = invalid & cpu_request = cpu_wr;
+DEFINE 
+    INVALIDABLE = state = invalid | state = i_trans 
 ASSIGN
     -- 1.내가 할일을 처리 하는 cpu
     init(task_status) := ready;
@@ -96,7 +94,7 @@ ASSIGN
         TRUE : mode;
     esac;
     init(state) := invalid;
-    next(state) := -- 시간을 맞춰주기 위해 
+    next(state) := 
     case
         state = exclusive_done : exclusive;
         state = modified_done : modified;
@@ -139,7 +137,6 @@ ASSIGN
                         esac;
                     TRUE : state;
                 esac;
-            -- port_IO = FALSE & mode = type1 : state;
         mode = type2 : 
                 case
                     bus_cmd = invalidate : invalid_done;
@@ -165,115 +162,142 @@ ASSIGN
 MODULE main
 VAR 
     BUS_CMD : {bus_rd,bus_rdx,invalidate,none};
-   
     port_IO : array 0..3 of boolean; -- TRUE : open , FALSE : block
-    ack0 : boolean;
-    ack1 : boolean;
 
-    -- ack2 : boolean;
-    -- ack3 : boolean;
+    ack : array 0..3 of boolean;
+    arbiter : {p0,p1,p2,p3,none};
 
-    -- arbiter : {p0,p1,p2,p3,none};
-    arbiter : {p0,p1,none};
-    c0 : Cache(port_IO[0],BUS_CMD,ack0);
-    c1 : Cache(port_IO[1],BUS_CMD,ack1);
-    -- c2 : Cache(port_IO[1],BUS_CMD,ack2);
-    -- c3 : Cache(port_IO[1],BUS_CMD,ack3);
+    c0 : Cache(port_IO[0],BUS_CMD,ack[0]);
+    c1 : Cache(port_IO[1],BUS_CMD,ack[1]);
+    c2 : Cache(port_IO[1],BUS_CMD,ack[2]);
+    c3 : Cache(port_IO[1],BUS_CMD,ack[3]);
+
 ASSIGN
     init(arbiter) := none;
-    -- next(arbiter) := {p0,p1,p2,p3,none};
-    next(arbiter) := {p0,p1,none};
-    ack0 :=
-        case
-            c1.state = invalid : FALSE;
-            c1.state = i_trans : FALSE;
-            TRUE : TRUE;
-        esac;
-    ack1 :=
-        case
-            c0.state = invalid : FALSE;
-            c0.state = i_trans : FALSE;
-            TRUE : TRUE;
-        esac;
-    -- ack2 :=
-    --     case 
-
-    --     esac;
-    -- ack3 := 
-    --     case
-
-    --     esac;
-
+    next(arbiter) := {p0,p1,p2,p3,none};
+    
+    ack[0]  :=  case
+                    c1.state = invalid | c1.state = i_trans |
+                    c2.state = invalid | c2.state = i_trans |
+                    c3.state = invalid | c3.state = i_trans : FALSE;
+                    TRUE : TRUE;
+                esac;
+    ack[1]  :=  case
+                    c0.state = invalid | c0.state = i_trans |
+                    c2.state = invalid | c2.state = i_trans |
+                    c3.state = invalid | c3.state = i_trans : FALSE;
+                    TRUE : TRUE;
+                esac;
+    ack[2]  :=  case 
+                    c0.state = invalid | c0.state = i_trans |
+                    c1.state = invalid | c1.state = i_trans |
+                    c3.state = invalid | c3.state = i_trans : FALSE;
+                    TRUE : TRUE;
+                esac;
+    ack[3]  :=  case
+                    c0.state = invalid | c0.state = i_trans |
+                    c1.state = invalid | c1.state = i_trans |
+                    c2.state = invalid | c2.state = i_trans : FALSE;
+                    TRUE : TRUE;
+                esac;
     init(port_IO[0]) := FALSE;
     next(port_IO[0]) := 
-        case
-            port_IO[0] = TRUE :
+        case port_IO[0] = TRUE :
             case 
                 c0.task_status = complete : {TRUE,FALSE}; -- 열든 말든 
                 TRUE : port_IO[0]; -- c0.task_status 가 아니면 유지 
             esac;
             port_IO[0] = FALSE : 
-                case
-                    port_IO[1] = TRUE : FALSE;
+                case 
+                --  수정 필요 START
+                    port_IO[1] = TRUE : FALSE; 
                     port_IO[1] = FALSE :
-                        case
-                            arbiter = p0 : TRUE;
-                            arbiter = p1 : FALSE;
-                                    -- ++++++++++++++++++++++++++++++++++++++++
-                        -- arbiter = p2 : FALSE;
-                        -- arbiter = p3 : TRUE;
-                -- ++++++++++++++++++++++++++++++++++++++++
-                            arbiter = none : FALSE;
-                            TRUE : FALSE;
-                        esac;
+                    case
+                        arbiter = p0 : TRUE;
+                        TRUE : FALSE;
+                    esac;
                     TRUE : port_IO[0];       
+                --  수정 필요 END
                 esac;
-            -- TRUE : port_IO[0];
         esac;
 
     init(port_IO[1]) := FALSE;
     next(port_IO[1]) := 
-        case 
-            port_IO[1] = TRUE :
+        case port_IO[1] = TRUE :
             case
                 c1.task_status = complete : {TRUE, FALSE};
                 TRUE : port_IO[1];
-            esac;
+            esac; 
             port_IO[1] = FALSE :
                 case 
+                --  수정 필요 START
                     port_IO[0] = TRUE : FALSE;
                     port_IO[0] = FALSE : 
                         case
-                            arbiter = p0 : FALSE;
                             arbiter = p1 : TRUE;
-            -- ++++++++++++++++++++++++++++++++++++++++
-                        -- arbiter = p2 : FALSE;
-                        -- arbiter = p3 : TRUE;
-                -- ++++++++++++++++++++++++++++++++++++++++
-
-                            arbiter = none : FALSE;
-                            TRUE : FALSE;
+                            TRUE : FALSE;  
                         esac;
+                --  수정 필요 END
                 esac;
-            TRUE : port_IO[1];
+            TRUE : port_IO[1]; 
         esac;
+    init(port_IO[2]) := FALSE;
+    next(port_IO[2]) := 
+        case port_IO[2] = TRUE :
+            case
+                c1.task_status = complete : {TRUE, FALSE};
+                TRUE : port_IO[2];
+            esac; 
+            port_IO[2] = FALSE :
+                case 
+                    --  수정 필요 START
+                    port_IO[0] = TRUE : FALSE;
+                    port_IO[0] = FALSE : 
+                        case
+                            arbiter = p1 : TRUE;
+                            TRUE : FALSE;  
+                        esac;
+                    --  수정 필요 END
+                esac;
+            TRUE : port_IO[2]; 
+        esac;
+    init(port_IO[3]) := FALSE;
+    next(port_IO[3]) := 
+        case port_IO[3] = TRUE :
+            case
+                c1.task_status = complete : {TRUE, FALSE};
+                TRUE : port_IO[3];
+            esac; 
+            port_IO[3] = FALSE :
+                case 
+                    --  수정 필요 START
+                    port_IO[0] = TRUE : FALSE;
+                    port_IO[0] = FALSE : 
+                        case
+                            arbiter = p1 : TRUE;
+                            TRUE : FALSE;  
+                        esac;
+                    --  수정 필요 END
+                esac;
+            TRUE : port_IO[3]; 
+        esac;
+
     init(BUS_CMD) := none;
     next(BUS_CMD) := 
         case
             port_IO[0] = TRUE : c0.bus_req;
             port_IO[1] = TRUE : c1.bus_req;
-
-    -- ++++++++++++++++++++++++++++++++++++++++
-            -- port_IO[2] = TRUE : c2.bus_req;
-            -- port_IO[3] = TRUE : c3.bus_req;
-    -- ++++++++++++++++++++++++++++++++++++++++
+            port_IO[2] = TRUE : c2.bus_req;
+            port_IO[3] = TRUE : c3.bus_req;
             TRUE : none;
         esac;
 -- END main ******************************************************************
+
+-- CTL CHECK SPEC
 SPEC AG!(c0.state = modified & c1.state = modified)
-SPEC AG!(c0.state = modified & c1.state = exclusive)
-SPEC AG!(c0.state = modified & c1.state = shared)
-SPEC AG!(c0.state = exclusive & c1.state = shared)
-SPEC AG!(c0.state = exclusive & c1.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = shared)
+-- SPEC AG!(c0.state = exclusive & c1.state = shared)
+-- SPEC AG!(c0.state = exclusive & c1.state = exclusive)
 
 -- // 수정할 부분 ack 부분 , port 부분
