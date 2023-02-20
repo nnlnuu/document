@@ -1,0 +1,47 @@
+MODULE main
+VAR
+    cpu_op1234: {rd1, wr1, rd2, wr2, none};
+    -- cpu_op1234: {rd1, wr1, rd2, wr2, rd3, wr3, rd4, wr4};
+    cache1 : {state_M, state_S, state_I, tr_S2M, tr_I2M, tr_I2S};
+    cache2 : {state_M, state_S, state_I, tr_S2M, tr_I2M, tr_I2S};
+    bus: {rd, rdx, upgrade, flush, none};
+    done1: boolean;
+    done2: boolean;
+ASSIGN
+    init(cpu_op1234) := none;
+    next(cpu_op1234) := case
+        !(cpu_op1234 = none) : none;
+        done1 & done2 & (cpu_op1234 = none): {rd1, wr1, rd2, wr2};
+        TRUE: cpu_op1234;
+    esac;
+    
+    init(cache1) := state_I;
+    next(cache1) := case
+    
+    
+    esac;
+    
+    init(cache2) := state_I;
+    next(cache2) := case
+    
+    
+    esac;
+    
+    init(bus) := none;
+    next(bus) := case
+    
+    
+    esac;
+    
+    init(done1) := TRUE;
+    next(done1) := case
+    
+    
+    esac;
+            
+    init(done2) := TRUE;
+    next(done2) := case
+    
+    
+    esac;
+    

@@ -28,7 +28,7 @@ VAR
     --/ cache가 bus에게 메세지를 보낼때 rd_wait 또는 wr_wait 상태로 전환
     --/ 이때 cpu가 다음 동작을 결정 
 DEFINE 
-    INVALIDABLE = state = invalid | state = i_trans 
+    INVALIDABLE := state = invalid | state = i_trans;
 ASSIGN
     -- 1.내가 할일을 처리 하는 cpu
     init(task_status) := ready;
@@ -160,12 +160,12 @@ ASSIGN
 
 -- START main ******************************************************************
 MODULE main
-VAR 
+VAR
     BUS_CMD : {bus_rd,bus_rdx,invalidate,none};
     port_IO : array 0..3 of boolean; -- TRUE : open , FALSE : block
 
     ack : array 0..3 of boolean;
-    arbiter : {p0,p1,p2,p3,none};
+    arbiter : {p0,p1,p2,p3,none}; 
 
     c0 : Cache(port_IO[0],BUS_CMD,ack[0]);
     c1 : Cache(port_IO[1],BUS_CMD,ack[1]);
@@ -177,28 +177,45 @@ ASSIGN
     next(arbiter) := {p0,p1,p2,p3,none};
     
     ack[0]  :=  case
-                    c1.state = invalid | c1.state = i_trans |
-                    c2.state = invalid | c2.state = i_trans |
-                    c3.state = invalid | c3.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c1.state = shared | c2.state = shared | c3.state = shared |
+                    c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+                    : TRUE;
+                    TRUE : FALSE;
+                    -- c1.state = invalid | c1.state = i_trans |
+                    -- c2.state = invalid | c2.state = i_trans |
+                    -- c3.state = invalid | c3.state = i_trans : FALSE;
+                    --TRUE : TRUE;
                 esac;
     ack[1]  :=  case
-                    c0.state = invalid | c0.state = i_trans |
-                    c2.state = invalid | c2.state = i_trans |
-                    c3.state = invalid | c3.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c0.state = shared | c2.state = shared | c3.state = shared |
+                    c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+                    : TRUE;
+                    TRUE : FALSE;
+
+                    -- c0.state = invalid | c0.state = i_trans |
+                    -- c2.state = invalid | c2.state = i_trans |
+                    -- c3.state = invalid | c3.state = i_trans : FALSE;
+                    -- TRUE : TRUE;
                 esac;
     ack[2]  :=  case 
-                    c0.state = invalid | c0.state = i_trans |
-                    c1.state = invalid | c1.state = i_trans |
-                    c3.state = invalid | c3.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c0.state = shared | c1.state = shared | c3.state = shared |
+                    c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
+                    : TRUE;
+                    TRUE : FALSE;
+                    -- c0.state = invalid | c0.state = i_trans |
+                    -- c1.state = invalid | c1.state = i_trans |
+                    -- c3.state = invalid | c3.state = i_trans : FALSE;
+                    -- TRUE : TRUE;
                 esac;
     ack[3]  :=  case
-                    c0.state = invalid | c0.state = i_trans |
-                    c1.state = invalid | c1.state = i_trans |
-                    c2.state = invalid | c2.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c0.state = shared | c1.state = shared | c2.state = shared |
+                    c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
+                    : TRUE;
+                    TRUE : FALSE;
+                    -- c0.state = invalid | c0.state = i_trans |
+                    -- c1.state = invalid | c1.state = i_trans |
+                    -- c2.state = invalid | c2.state = i_trans : FALSE;
+                    -- TRUE : TRUE;
                 esac;
     init(port_IO[0]) := FALSE;
     next(port_IO[0]) := 
@@ -210,13 +227,13 @@ ASSIGN
             port_IO[0] = FALSE : 
                 case 
                 --  수정 필요 START
-                    port_IO[1] = TRUE : FALSE; 
-                    port_IO[1] = FALSE :
-                    case
-                        arbiter = p0 : TRUE;
-                        TRUE : FALSE;
-                    esac;
-                    TRUE : port_IO[0];       
+                    port_IO[1] = TRUE | port_IO[2] = TRUE | port_IO[3] = TRUE 
+                    : FALSE;
+                    port_IO[1] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : 
+                        case
+                            arbiter = p0 : TRUE;
+                            TRUE : FALSE;  
+                        esac;
                 --  수정 필요 END
                 esac;
         esac;
@@ -231,8 +248,9 @@ ASSIGN
             port_IO[1] = FALSE :
                 case 
                 --  수정 필요 START
-                    port_IO[0] = TRUE : FALSE;
-                    port_IO[0] = FALSE : 
+                 port_IO[0] = TRUE | port_IO[2] = TRUE | port_IO[3] = TRUE 
+                    : FALSE;
+                    port_IO[0] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : 
                         case
                             arbiter = p1 : TRUE;
                             TRUE : FALSE;  
@@ -251,10 +269,11 @@ ASSIGN
             port_IO[2] = FALSE :
                 case 
                     --  수정 필요 START
-                    port_IO[0] = TRUE : FALSE;
-                    port_IO[0] = FALSE : 
+                    port_IO[0] = TRUE | port_IO[1] = TRUE | port_IO[3] = TRUE 
+                    : FALSE;
+                    port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[3] = FALSE : 
                         case
-                            arbiter = p1 : TRUE;
+                            arbiter = p2 : TRUE;
                             TRUE : FALSE;  
                         esac;
                     --  수정 필요 END
@@ -271,10 +290,12 @@ ASSIGN
             port_IO[3] = FALSE :
                 case 
                     --  수정 필요 START
-                    port_IO[0] = TRUE : FALSE;
-                    port_IO[0] = FALSE : 
+
+                    port_IO[0] = TRUE | port_IO[1] = TRUE | port_IO[2] = TRUE 
+                    : FALSE;
+                    port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[2] = FALSE : 
                         case
-                            arbiter = p1 : TRUE;
+                            arbiter = p3 : TRUE;
                             TRUE : FALSE;  
                         esac;
                     --  수정 필요 END
@@ -294,10 +315,16 @@ ASSIGN
 -- END main ******************************************************************
 
 -- CTL CHECK SPEC
-SPEC AG!(c0.state = modified & c1.state = modified)
+-- COMPELTE
+--SPEC AG!(c0.state = modified & c1.state = modified)
+
 -- SPEC AG!(c0.state = modified & c1.state = exclusive)
+SPEC AG !(c0.mode = type1 & c1.mode = type1 & c2.mode = type1)
 -- SPEC AG!(c0.state = modified & c1.state = shared)
 -- SPEC AG!(c0.state = exclusive & c1.state = shared)
 -- SPEC AG!(c0.state = exclusive & c1.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = exclusive & c2.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = exclusive & c2.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = shared & c2.state = shared)
 
 -- // 수정할 부분 ack 부분 , port 부분
