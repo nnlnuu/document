@@ -184,46 +184,73 @@ ASSIGN
     next(arbiter) := {p0,p1,p2,p3,none};
     
     -- ack 란 다른 cache 의 상태를 확인하는 변수 
-    
-    ack[0]  :=  case 
-                    -- c1.state = shared | c2.state = shared | c3.state = shared |
-                    -- c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-                    -- : TRUE;
-                    -- TRUE : FALSE;
-                    c1.state = invalid | c2.state = invalid | c3.state = invalid : FALSE;
+    init(ack[0]) := FALSE;
+    next(ack[0]) := case
+                    c1.state = invalid | c2.state = invalid | c3.state = invalid 
+                    c1.state = i_trans | c2.state = i_trans | c3.state = i_trans 
+                    : FALSE;
                     TRUE : TRUE;
                 esac;
-    ack[1]  :=  case
-                    -- c0.state = shared | c2.state = shared | c3.state = shared |
-                    -- c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-                    -- : TRUE;
-                    -- TRUE : FALSE;
-
+    -- ack[0]  :=  case 
+    --                 -- c1.state = shared | c2.state = shared | c3.state = shared |
+    --                 -- c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+    --                 -- : TRUE;
+    --                 -- TRUE : FALSE;
+    --                 c1.state = invalid | c2.state = invalid | c3.state = invalid : FALSE;
+    --                 TRUE : TRUE;
+    --             esac;
+    init(ack[1]):= FALSE;
+    next(ack[1]):= case
                     c0.state = invalid | c0.state = i_trans |
                     c2.state = invalid | c2.state = i_trans |
                     c3.state = invalid | c3.state = i_trans : FALSE;
                     TRUE : TRUE;
                 esac;
-    ack[2]  :=  case 
-                    -- c0.state = shared | c1.state = shared | c3.state = shared |
-                    -- c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
-                    -- : TRUE;
-                    -- TRUE : FALSE;
+    -- ack[1]  :=  case
+    --                 -- c0.state = shared | c2.state = shared | c3.state = shared |
+    --                 -- c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+    --                 -- : TRUE;
+    --                 -- TRUE : FALSE;
+
+    --                 c0.state = invalid | c0.state = i_trans |
+    --                 c2.state = invalid | c2.state = i_trans |
+    --                 c3.state = invalid | c3.state = i_trans : FALSE;
+    --                 TRUE : TRUE;
+    --             esac;
+    init(ack[2]) := FALSE;
+    next(ack[2]) := case
                     c0.state = invalid | c0.state = i_trans |
                     c1.state = invalid | c1.state = i_trans |
                     c3.state = invalid | c3.state = i_trans : FALSE;
                     TRUE : TRUE;
                 esac;
-    ack[3]  :=  case
-                    -- c0.state = shared | c1.state = shared | c2.state = shared |
-                    -- c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
-                    -- : TRUE;
-                    -- TRUE : FALSE;
+    
+    -- ack[2]  :=  case 
+    --                 -- c0.state = shared | c1.state = shared | c3.state = shared |
+    --                 -- c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
+    --                 -- : TRUE;
+    --                 -- TRUE : FALSE;
+    --                 c0.state = invalid | c0.state = i_trans |
+    --                 c1.state = invalid | c1.state = i_trans |
+    --                 c3.state = invalid | c3.state = i_trans : FALSE;
+    --                 TRUE : TRUE;
+    --             esac;
+    init(ack[3]):=FALSE;
+    next(ack[3]):= case
                     c0.state = invalid | c0.state = i_trans |
                     c1.state = invalid | c1.state = i_trans |
                     c2.state = invalid | c2.state = i_trans : FALSE;
-                    TRUE : TRUE;
                 esac;
+    -- ack[3]  :=  case
+    --                 -- c0.state = shared | c1.state = shared | c2.state = shared |
+    --                 -- c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
+    --                 -- : TRUE;
+    --                 -- TRUE : FALSE;
+    --                 c0.state = invalid | c0.state = i_trans |
+    --                 c1.state = invalid | c1.state = i_trans |
+    --                 c2.state = invalid | c2.state = i_trans : FALSE;
+    --                 TRUE : TRUE;
+    --             esac;
     init(port_IO[0]) := FALSE;
     next(port_IO[0]) := 
         case port_IO[0] = TRUE :
