@@ -168,18 +168,12 @@ VAR
     port_IO : array 0..1 of boolean; -- TRUE : open , FALSE : block
     ack0 : boolean;
     ack1 : boolean;
-    -- ack2 : boolean;
-    -- ack3 : boolean;
 
-    -- arbiter : {p0,p1,p2,p3,none};
     arbiter : {p0,p1,none};
     c0 : Cache(port_IO[0],BUS_CMD,ack0);
     c1 : Cache(port_IO[1],BUS_CMD,ack1);
-    -- c2 : Cache(port_IO[1],BUS_CMD,ack2);
-    -- c3 : Cache(port_IO[1],BUS_CMD,ack3);
 ASSIGN
     init(arbiter) := none;
-    -- next(arbiter) := {p0,p1,p2,p3,none};
     next(arbiter) := {p0,p1,none};
     ack0 :=
         case
@@ -207,7 +201,7 @@ ASSIGN
         case
             port_IO[0] = TRUE :
             case 
-                c0.task_status = complete : {TRUE,FALSE}; -- 열든 말든 
+                c0.task_status = complete : FALSE; -- 열든 말든 
                 TRUE : port_IO[0]; -- c0.task_status 가 아니면 유지 
             esac;
             port_IO[0] = FALSE : 
@@ -234,7 +228,7 @@ ASSIGN
         case 
             port_IO[1] = TRUE :
             case
-                c1.task_status = complete : {TRUE, FALSE};
+                c1.task_status = complete : FALSE;
                 TRUE : port_IO[1];
             esac;
             port_IO[1] = FALSE :
@@ -244,11 +238,6 @@ ASSIGN
                         case
                             arbiter = p0 : FALSE;
                             arbiter = p1 : TRUE;
-            -- ++++++++++++++++++++++++++++++++++++++++
-                        -- arbiter = p2 : FALSE;
-                        -- arbiter = p3 : TRUE;
-                -- ++++++++++++++++++++++++++++++++++++++++
-
                             arbiter = none : FALSE;
                             TRUE : FALSE;
                         esac;
@@ -260,11 +249,6 @@ ASSIGN
         case
             port_IO[0] = TRUE : c0.bus_req;
             port_IO[1] = TRUE : c1.bus_req;
-
-    -- ++++++++++++++++++++++++++++++++++++++++
-            -- port_IO[2] = TRUE : c2.bus_req;
-            -- port_IO[3] = TRUE : c3.bus_req;
-    -- ++++++++++++++++++++++++++++++++++++++++
             TRUE : none;
         esac;
 -- END main ******************************************************************

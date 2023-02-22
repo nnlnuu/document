@@ -86,20 +86,27 @@ ASSIGN
             task_status = complete : none; 
             TRUE : bus_req;
         esac;
-    init(mode) := none;
-    next(mode) := 
-    case 
-        port_IO = TRUE  : type1;
-        port_IO = FALSE : type2;
-        TRUE : mode;
-    esac;
+    -- init(mode) := none;
+    -- next(mode) := 
+    -- case 
+    --     port_IO = TRUE  : type1;
+    --     port_IO = FALSE : type2;
+    --     TRUE : mode;
+    -- esac;
+    mode := case   
+            port_IO = TRUE  : type1;
+            port_IO = FALSE : type2;
+        esac;
+
     init(state) := invalid;
     next(state) := 
     case
+        -- 턴을 넘어
         state = exclusive_done : exclusive;
         state = modified_done : modified;
         state = shared_done : shared;
         state = invalid_done : invalid;
+
         mode = type1 :-- cpu_로부터 
                 case 
                     -- 1.0 cpu_request = none 
@@ -169,53 +176,53 @@ VAR
 
     c0 : Cache(port_IO[0],BUS_CMD,ack[0]);
     c1 : Cache(port_IO[1],BUS_CMD,ack[1]);
-    c2 : Cache(port_IO[1],BUS_CMD,ack[2]);
-    c3 : Cache(port_IO[1],BUS_CMD,ack[3]);
+    c2 : Cache(port_IO[2],BUS_CMD,ack[2]);
+    c3 : Cache(port_IO[3],BUS_CMD,ack[3]);
 
 ASSIGN
     init(arbiter) := none;
     next(arbiter) := {p0,p1,p2,p3,none};
     
-    ack[0]  :=  case
-                    c1.state = shared | c2.state = shared | c3.state = shared |
-                    c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-                    : TRUE;
-                    TRUE : FALSE;
-                    -- c1.state = invalid | c1.state = i_trans |
-                    -- c2.state = invalid | c2.state = i_trans |
-                    -- c3.state = invalid | c3.state = i_trans : FALSE;
-                    --TRUE : TRUE;
+    -- ack 란 다른 cache 의 상태를 확인하는 변수 
+    
+    ack[0]  :=  case 
+                    -- c1.state = shared | c2.state = shared | c3.state = shared |
+                    -- c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+                    -- : TRUE;
+                    -- TRUE : FALSE;
+                    c1.state = invalid | c2.state = invalid | c3.state = invalid : FALSE;
+                    TRUE : TRUE;
                 esac;
     ack[1]  :=  case
-                    c0.state = shared | c2.state = shared | c3.state = shared |
-                    c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-                    : TRUE;
-                    TRUE : FALSE;
+                    -- c0.state = shared | c2.state = shared | c3.state = shared |
+                    -- c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
+                    -- : TRUE;
+                    -- TRUE : FALSE;
 
-                    -- c0.state = invalid | c0.state = i_trans |
-                    -- c2.state = invalid | c2.state = i_trans |
-                    -- c3.state = invalid | c3.state = i_trans : FALSE;
-                    -- TRUE : TRUE;
+                    c0.state = invalid | c0.state = i_trans |
+                    c2.state = invalid | c2.state = i_trans |
+                    c3.state = invalid | c3.state = i_trans : FALSE;
+                    TRUE : TRUE;
                 esac;
     ack[2]  :=  case 
-                    c0.state = shared | c1.state = shared | c3.state = shared |
-                    c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
-                    : TRUE;
-                    TRUE : FALSE;
-                    -- c0.state = invalid | c0.state = i_trans |
-                    -- c1.state = invalid | c1.state = i_trans |
-                    -- c3.state = invalid | c3.state = i_trans : FALSE;
-                    -- TRUE : TRUE;
+                    -- c0.state = shared | c1.state = shared | c3.state = shared |
+                    -- c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
+                    -- : TRUE;
+                    -- TRUE : FALSE;
+                    c0.state = invalid | c0.state = i_trans |
+                    c1.state = invalid | c1.state = i_trans |
+                    c3.state = invalid | c3.state = i_trans : FALSE;
+                    TRUE : TRUE;
                 esac;
     ack[3]  :=  case
-                    c0.state = shared | c1.state = shared | c2.state = shared |
-                    c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
-                    : TRUE;
-                    TRUE : FALSE;
-                    -- c0.state = invalid | c0.state = i_trans |
-                    -- c1.state = invalid | c1.state = i_trans |
-                    -- c2.state = invalid | c2.state = i_trans : FALSE;
-                    -- TRUE : TRUE;
+                    -- c0.state = shared | c1.state = shared | c2.state = shared |
+                    -- c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
+                    -- : TRUE;
+                    -- TRUE : FALSE;
+                    c0.state = invalid | c0.state = i_trans |
+                    c1.state = invalid | c1.state = i_trans |
+                    c2.state = invalid | c2.state = i_trans : FALSE;
+                    TRUE : TRUE;
                 esac;
     init(port_IO[0]) := FALSE;
     next(port_IO[0]) := 
@@ -242,7 +249,7 @@ ASSIGN
     next(port_IO[1]) := 
         case port_IO[1] = TRUE :
             case
-                c1.task_status = complete : {TRUE, FALSE};
+                c1.task_status = complete : {TRUE,FALSE};
                 TRUE : port_IO[1];
             esac; 
             port_IO[1] = FALSE :
@@ -266,7 +273,7 @@ ASSIGN
                 c1.task_status = complete : {TRUE, FALSE};
                 TRUE : port_IO[2];
             esac; 
-            port_IO[2] = FALSE :
+            port_IO[2] = FALSE : 
                 case 
                     --  수정 필요 START
                     port_IO[0] = TRUE | port_IO[1] = TRUE | port_IO[3] = TRUE 
@@ -284,7 +291,7 @@ ASSIGN
     next(port_IO[3]) := 
         case port_IO[3] = TRUE :
             case
-                c1.task_status = complete : {TRUE, FALSE};
+                c1.task_status = complete : {TRUE,FALSE};
                 TRUE : port_IO[3];
             esac; 
             port_IO[3] = FALSE :
@@ -317,9 +324,14 @@ ASSIGN
 -- CTL CHECK SPEC
 -- COMPELTE
 --SPEC AG!(c0.state = modified & c1.state = modified)
+--SPEC AG !(c0.mode = type1 & c1.mode = type1 & c2.mode = type1)
 
--- SPEC AG!(c0.state = modified & c1.state = exclusive)
-SPEC AG !(c0.mode = type1 & c1.mode = type1 & c2.mode = type1)
+SPEC AG!(c0.state = modified & c1.state = exclusive)
+
+-- SPEC AG!(c0.port_IO = TRUE & c1.port_IO = TRUE & c2.port_IO = TRUE) 
+
+
+
 -- SPEC AG!(c0.state = modified & c1.state = shared)
 -- SPEC AG!(c0.state = exclusive & c1.state = shared)
 -- SPEC AG!(c0.state = exclusive & c1.state = exclusive)
