@@ -2,13 +2,11 @@
 -- Single cache line per processor with 1-bit data
 -- Hyeonwoo 2/14/2023
 
-
 -- ******************************************************************
 MODULE Cache(port_IO,bus_cmd,ack)
 -- port_IO : 통로를 open,block 하는 param
 -- message : 통롤르 통해 전달 받는 message(bus_rd,bus_rdx)
 VAR 
-
     -- mode를 두개로 
     -- 1. 내가 할일 처리하는 => cpu로부터 state
     -- 2. 받은 신호에 대한 처리를 하는 

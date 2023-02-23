@@ -1,54 +1,44 @@
 -- Nusmv specification for MESI protocol with trasient state
 -- Single cache line per processor with 1-bit data
--- Hyeonwoo 2/14/2023
-
-
+-- Hyeonwoo 2/14/2023,2/22/2023
 -- ******************************************************************
-MODULE Cache(port_IO,bus_cmd,ack)
--- port_IO : 통로를 open,block 하는 param
--- message : 통롤르 통해 전달 받는 message(bus_rd,bus_rdx)
+MODULE Cache(port_IO,bus_cmd,ack,done)
+-- port_IO : 통로를 open,block 하는 param / bus_cmd: bus command snooping / ack 다른 cache state 확인 / 다른 cache 작업 확인 
 VAR 
-
-    -- mode를 두개로 
-    -- 1. 내가 할일 처리하는 => cpu로부터 state
-    -- 2. 받은 신호에 대한 처리를 하는 
-    mode : {type1,type2,none};
-    state : {modified,exclusive, shared, invalid, i_trans,
-            modified_done,shared_done,invalid_done,exclusive_done,m_pending,s_pending};
-    -- cpu 의 요청 cache의 반응 
+    state : {modified,exclusive, shared, invalid, -- 기존 state 
+            modified_done,exclusive_done,shared_done,invalid_done, -- 완료된 것을 알려주는 state  
+            i_pending,m_pending,s_pending}; -- transient state (pending state) 
     cpu_request : {cpu_wr,cpu_rd,none}; -- cpu가 -> cache로 보내는 요청
-    -- cpu_request task_status에 따라 동작 
-    
-    -- 활동 권한
-    task_status : {ready,rd_status,wr_status,complete}; 
-    -- ready 는 준비상태 , rd,wr는 진행 상태 , complete는 state 가 변경되고 완료된 상태
-    
-    bus_req : {bus_rd,bus_rdx,invalidate,none};
-    --/ task_status는 idle이다가 cache_port 가 열려 있으면서 
-    --/ cache가 bus에게 메세지를 보낼때 rd_wait 또는 wr_wait 상태로 전환
-    --/ 이때 cpu가 다음 동작을 결정 
+    task_status : {idle,rd_status,wr_status,wait,complete}; -- cpu 별 작업 상태 
+    --/ idle 는 준비상태 , rd,wr,wait는 진행 상태 , complete는 state 가 변경되고 완료된 상태
+    bus_req : {bus_rd,bus_rdx,invalidate,none}; -- task_status 가 wr_status 또는 rd_status 일때 버스로 보내지는 요청
 DEFINE 
-    INVALIDABLE := state = invalid | state = i_trans;
+    -- CRAT := cpu_request = cpu_rd & ack = TRUE; CRAF := cpu_request = cpu_rd & ack = FALSE;
+    -- CWAT := cpu_request = cpu_wr & ack = TRUE; CWAF := cpu_request = cpu_wr & ack = FALSE;
+    -- STATE_DONE := state = modified_done | state = exclusive_done | state = shared_done | state = invalid_done;
+    -- STATE_PENDING := state = i_pending | state = m_pending | state = s_pending;
 ASSIGN
-    -- 1.내가 할일을 처리 하는 cpu
-    init(task_status) := ready;
+    -- 확인 
+    init(task_status) := idle; -- 준비 상태 
     next(task_status) :=
     case
         state = modified_done | state = exclusive_done | state = shared_done | state = invalid_done : complete;
-        task_status = complete : ready; 
-        mode = type1 : 
+        task_status = complete : idle; --/ complete 다음은 항상 idle로 
+        done = TRUE : complete;
+        port_IO = TRUE : -- port 가 열렸을 때 
         case 
-            task_status = ready : 
+            task_status = idle : 
                 case 
-                    cpu_request = none : ready;
+                    cpu_request = none : idle;
                     cpu_request = cpu_rd : rd_status;
                     cpu_request = cpu_wr : wr_status;
                 esac;   
-                TRUE : task_status;
-        esac;
-        mode = type2 : -- bus 로 부터 받은 데이터 존재 
+            state = i_pending | state = m_pending | state = s_pending : wait;
+            TRUE : task_status; 
+        esac; 
+        port_IO = FALSE : -- bus 로 부터 받은 데이터 존재 
         case
-            task_status = ready : 
+            task_status = idle : 
                 case 
                     bus_cmd = bus_rd : rd_status; 
                     bus_cmd = bus_rdx : wr_status;
@@ -61,309 +51,329 @@ ASSIGN
     init(cpu_request) := none;    
     next(cpu_request):= 
         case 
-            mode = type1 : 
+            port_IO = TRUE : 
                 case
-                    cpu_request = none & task_status = ready : {cpu_wr,cpu_rd};
-                    task_status = rd_status | task_status = wr_status : cpu_request;
+                    cpu_request = none & task_status = idle : {cpu_wr,cpu_rd};
                     task_status = complete : none;
-                    TRUE : cpu_request;
+                    TRUE : cpu_request; -- (wr,rd,wait status)
                 esac;
-            -- mode = type2 : none; 
-            TRUE : none;
+            port_IO = FALSE : none;  -- port_IO = FALSE 인 경우는 따로 
         esac;
-    -- mode state 구현
+    -- 확인 
     init(bus_req) := none;
     next(bus_req) :=
-        case 
-            mode = type1 : 
+        case  
+            port_IO = TRUE : -- open port 일때
                 case
-                    state = i_trans & task_status = wr_status : bus_rdx;
-                    state = i_trans & task_status = rd_status : bus_rd;
+                    cpu_request = cpu_rd & task_status = wait : bus_rd;
+                    cpu_request = cpu_wr & task_status = wait : bus_rdx;
                     state = modified & cpu_request = cpu_wr : bus_rdx;
-                    state = shared & cpu_request = cpu_wr : bus_rdx;
+                    state = shared & cpu_request = cpu_wr : bus_rdx;        
+                    task_status = complete : none;
                     TRUE : bus_req;
                 esac;
-            task_status = complete : none; 
+            port_IO = FALSE : 
+                case
+                    task_status = idle : bus_cmd;
+                    task_status = complete : none;
+                    TRUE : bus_req;
+                esac;
             TRUE : bus_req;
         esac;
-    -- init(mode) := none;
-    -- next(mode) := 
-    -- case 
-    --     port_IO = TRUE  : type1;
-    --     port_IO = FALSE : type2;
-    --     TRUE : mode;
-    -- esac;
-    mode := case   
-            port_IO = TRUE  : type1;
-            port_IO = FALSE : type2;
-        esac;
-
     init(state) := invalid;
     next(state) := 
     case
-        -- 턴을 넘어
-        state = exclusive_done : exclusive;
-        state = modified_done : modified;
-        state = shared_done : shared;
-        state = invalid_done : invalid;
-
-        mode = type1 :-- cpu_로부터 
-                case 
+        state = exclusive_done : exclusive; state = modified_done : modified;
+        state = shared_done : shared; state = invalid_done : invalid;
+        port_IO = TRUE :-- cpu_로부터 
+                case
                     -- 1.0 cpu_request = none 
-                    cpu_request = none : state;
-
-                    -- 1.1 invalid state --> bus를 통해 요청 
-                    state = invalid & cpu_request = cpu_wr & task_status = wr_status : i_trans;
-                    state = invalid & cpu_request = cpu_rd & task_status = rd_status : i_trans;
-                    
-                    -- 1.2 shared state -> 그대로 또는 변경 
-                    state = shared & cpu_request = cpu_wr : m_pending; -- 다른 cache 한테 invalidate 보내기
-                    state = shared & cpu_request = cpu_rd : shared_done; 
-                    
-                    -- 1.3 exclusive state -> 그대로
-                    state = exclusive & cpu_request = cpu_wr : exclusive_done;
-                    state = exclusive & cpu_request = cpu_rd : exclusive_done;
-
-                    -- 1.4 modified state 
-                    state = modified & cpu_request = cpu_wr : m_pending;
-                    state = modified & cpu_request = cpu_rd : modified_done;
-
-                    -- 1.5 i_trans state -> cpu_requset에 상관없이 그대로 유지
-                    state = i_trans & ack = TRUE : s_pending;
-                    state = i_trans & ack = FALSE : exclusive_done;
-
+                    cpu_request = none : state; 
+                    -- 1.1 task_status = rd_status 일때 
+                    task_status = rd_status:
+                        case
+                            state = invalid : i_pending;
+                            state = shared : shared_done; -- 본인이 shared state 이면서 rd 권한 
+                            state = exclusive : exclusive_done;
+                            state = modified : modified_done;
+                            TRUE : state;
+                        esac;
+                    -- 1.2 task_status = wr_status 일때 
+                    task_status = wr_status:
+                        case 
+                            state = invalid : i_pending; 
+                            state = shared : s_pending; -- pending 해서 다른 친구들 -> invalidate 하게 변경
+                            state = exclusive : modified_done;
+                            state = modified : m_pending;
+                            TRUE : state;
+                        esac;                    
+                    -- 1.3 task_status = wait 일때 (다른 cache에서의 상황을 기다리는 중)
+                    task_status = wait : --/ (state 가 pending 일때만 wait으로 넘어감)
+                        case
+                        -- 1.3.1 
+                        state = i_pending & done = TRUE :
+                            case
+                                cpu_request = cpu_rd & ack = TRUE : shared_done; 
+                                cpu_request = cpu_rd & ack = FALSE : exclusive_done; 
+                                cpu_request = cpu_wr : modified_done;
+                                -- cpu_request = cpu_wr & ack = TRUE : modified_done; 
+                                -- cpu_request = cpu_wr & ack = FALSE : modified_done;
+                            esac;
+                        state = i_pending & done = FALSE : state;    
+                        state = s_pending & done = TRUE :
+                            case
+                                cpu_request = cpu_rd & ack = TRUE : shared_done; 
+                                cpu_request = cpu_rd & ack = FALSE : exclusive_done; 
+                                cpu_request = cpu_wr & ack = TRUE : modified_done; 
+                                cpu_request = cpu_wr & ack = FALSE : modified_done;
+                            esac;
+                        state = s_pending & done = FALSE : state; 
+                        state = m_pending & done = TRUE :
+                            case
+                                cpu_request = cpu_rd & ack = TRUE : modified_done; 
+                                cpu_request = cpu_rd & ack = FALSE : modified_done; 
+                                cpu_request = cpu_wr & ack = TRUE : modified_done; 
+                                cpu_request = cpu_wr & ack = FALSE : modified_done;
+                            esac;
+                        state = m_pending & done = FALSE : state; 
+                        TRUE : state;
+                        esac;
+                    -- 1.5 i_pending state -> cpu_requset에 상관없이 그대로 유지
+                    state = i_pending & ack = TRUE : shared_done;
+                    state = i_pending & ack = FALSE : exclusive_done;
                     state = m_pending : 
                         case 
-                            ack = TRUE : m_pending;
+                            ack = TRUE : state;
                             ack = FALSE : modified_done;
                         esac;
                     state = s_pending:
                         case 
-                            ack = TRUE : s_pending;
+                            ack = TRUE : state;
                             ack = FALSE : shared_done;
                         esac;
                     TRUE : state;
                 esac;
-        mode = type2 : 
+        port_IO = FALSE : 
                 case
                     bus_cmd = invalidate : invalid_done;
-                    task_status = ready :  state;
+                    task_status = idle :  state;
                     task_status = rd_status : 
                         case    
                             state = invalid : invalid_done;
+                            -- state = modified : shared_done;
+                            -- ack = TRUE : shared_done;
                             state = modified : shared_done;
                             state = exclusive : shared_done;
                             state = shared : shared_done;
                             TRUE : state;
                         esac;
-                    task_status = wr_status : invalid_done;
-                    task_status = invalidate : invalid_done;
+                    task_status = wr_status | task_status = invalidate : invalid_done;
                     TRUE : state; 
                 esac;
-                TRUE : state;
-            esac; 
+            TRUE : state;
+        esac; 
 -- END Cache
-
-
 -- START main ******************************************************************
 MODULE main
 VAR
     BUS_CMD : {bus_rd,bus_rdx,invalidate,none};
     port_IO : array 0..3 of boolean; -- TRUE : open , FALSE : block
-
-    ack : array 0..3 of boolean;
-    arbiter : {p0,p1,p2,p3,none}; 
-
-    c0 : Cache(port_IO[0],BUS_CMD,ack[0]);
-    c1 : Cache(port_IO[1],BUS_CMD,ack[1]);
-    c2 : Cache(port_IO[2],BUS_CMD,ack[2]);
-    c3 : Cache(port_IO[3],BUS_CMD,ack[3]);
-
+    ack : array 0..3 of boolean; -- 다른 cache의 상태(state) 를 확인하는 변수
+    done : array 0..3 of boolean; -- 다른 cache에서 작업이 다 끝났는지를 확인하는 변수
+    arbiter : {p0,p1,p2,p3,none,wait}; 
+    c0 : Cache(port_IO[0],BUS_CMD,ack[0],done[0]);
+    c1 : Cache(port_IO[1],BUS_CMD,ack[1],done[1]);
+    c2 : Cache(port_IO[2],BUS_CMD,ack[2],done[2]);
+    c3 : Cache(port_IO[3],BUS_CMD,ack[3],done[3]);  
+DEFINE 
+    ARBITER_ON := arbiter = p0 | arbiter = p1 | arbiter = p2 | arbiter = p3;
 ASSIGN
+    done[0] :=  case
+            c1.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+                esac;
+    done[1] :=  case
+            c0.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+                esac;
+    done[2] :=  case
+            c1.task_status = complete & c0.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+                esac;
+    done[3] :=  case
+            c1.task_status = complete & c2.task_status = complete & c0.task_status = complete : TRUE; TRUE : FALSE;
+                esac;
     init(arbiter) := none;
-    next(arbiter) := {p0,p1,p2,p3,none};
-    
+    next(arbiter) := 
+        case 
+            arbiter = none : {p0,p1,p2,p3};
+            ARBITER_ON : wait;
+            -- arbiter = p0 | arbiter = p1 | arbiter = p2 | arbiter = p3 : wait;
+            arbiter = wait :
+                case
+                    port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : none;
+                    TRUE : wait;
+                esac;
+        esac;    
+
+    -- ///////// ack ////////// --
     -- ack 란 다른 cache 의 상태를 확인하는 변수 
     init(ack[0]) := FALSE;
     next(ack[0]) := case
-                    c1.state = invalid | c2.state = invalid | c3.state = invalid 
-                    c1.state = i_trans | c2.state = i_trans | c3.state = i_trans 
-                    : FALSE;
-                    TRUE : TRUE;
+                    c1.state = shared | c2.state = shared | c3.state = shared |
+                    c1.state = shared_done | c2.state = shared_done | c3.state = shared_done : TRUE;
+                    TRUE : FALSE;
+                    -- c1.state = invalid | c2.state = invalid | c3.state = invalid 
+                    -- | c1.state = invalid_done | c2.state = invalid_done | c3.state = invalid_done : FALSE;
+                    -- TRUE : TRUE;
                 esac;
-    -- ack[0]  :=  case 
-    --                 -- c1.state = shared | c2.state = shared | c3.state = shared |
-    --                 -- c1.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-    --                 -- : TRUE;
-    --                 -- TRUE : FALSE;
-    --                 c1.state = invalid | c2.state = invalid | c3.state = invalid : FALSE;
-    --                 TRUE : TRUE;
-    --             esac;
     init(ack[1]):= FALSE;
     next(ack[1]):= case
-                    c0.state = invalid | c0.state = i_trans |
-                    c2.state = invalid | c2.state = i_trans |
-                    c3.state = invalid | c3.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c0.state = shared | c2.state = shared | c3.state = shared |
+                    c0.state = shared_done | c2.state = shared_done | c3.state = shared_done : TRUE;
+                    TRUE : FALSE;
+                    -- c0.state = invalid | c2.state = invalid | c3.state = invalid 
+                    -- | c0.state = invalid_done | c2.state = invalid_done | c3.state = invalid_done : FALSE;
+                    -- TRUE : TRUE;
                 esac;
-    -- ack[1]  :=  case
-    --                 -- c0.state = shared | c2.state = shared | c3.state = shared |
-    --                 -- c0.state = exclusive | c2.state = exclusive | c3.state = exclusive 
-    --                 -- : TRUE;
-    --                 -- TRUE : FALSE;
-
-    --                 c0.state = invalid | c0.state = i_trans |
-    --                 c2.state = invalid | c2.state = i_trans |
-    --                 c3.state = invalid | c3.state = i_trans : FALSE;
-    --                 TRUE : TRUE;
-    --             esac;
     init(ack[2]) := FALSE;
     next(ack[2]) := case
-                    c0.state = invalid | c0.state = i_trans |
-                    c1.state = invalid | c1.state = i_trans |
-                    c3.state = invalid | c3.state = i_trans : FALSE;
-                    TRUE : TRUE;
+                    c1.state = shared | c3.state = shared | c0.state = shared |
+                    c1.state = shared_done | c3.state = shared_done | c0.state = shared_done : TRUE;
+                    TRUE : FALSE;
+                    -- c0.state = invalid | c1.state = invalid | c3.state = invalid 
+                    -- | c0.state = invalid_done | c1.state = invalid_done | c3.state = invalid_done : FALSE;
+                    -- TRUE : TRUE;
                 esac;
-    
-    -- ack[2]  :=  case 
-    --                 -- c0.state = shared | c1.state = shared | c3.state = shared |
-    --                 -- c0.state = exclusive | c1.state = exclusive | c3.state = exclusive 
-    --                 -- : TRUE;
-    --                 -- TRUE : FALSE;
-    --                 c0.state = invalid | c0.state = i_trans |
-    --                 c1.state = invalid | c1.state = i_trans |
-    --                 c3.state = invalid | c3.state = i_trans : FALSE;
-    --                 TRUE : TRUE;
-    --             esac;
     init(ack[3]):=FALSE;
     next(ack[3]):= case
-                    c0.state = invalid | c0.state = i_trans |
-                    c1.state = invalid | c1.state = i_trans |
-                    c2.state = invalid | c2.state = i_trans : FALSE;
+                    c1.state = shared | c2.state = shared | c0.state = shared |
+                    c1.state = shared_done | c2.state = shared_done | c0.state = shared_done : TRUE;
+                    TRUE : FALSE; 
+                    -- c0.state = invalid | c1.state = invalid | c2.state = invalid 
+                    -- | c0.state = invalid_done | c1.state = invalid_done | c2.state = invalid_done : FALSE;
+                    -- TRUE : TRUE;
                 esac;
-    -- ack[3]  :=  case
-    --                 -- c0.state = shared | c1.state = shared | c2.state = shared |
-    --                 -- c0.state = exclusive | c1.state = exclusive | c2.state = exclusive 
-    --                 -- : TRUE;
-    --                 -- TRUE : FALSE;
-    --                 c0.state = invalid | c0.state = i_trans |
-    --                 c1.state = invalid | c1.state = i_trans |
-    --                 c2.state = invalid | c2.state = i_trans : FALSE;
-    --                 TRUE : TRUE;
-    --             esac;
+    -- ///////// port_IO ////////// --
     init(port_IO[0]) := FALSE;
     next(port_IO[0]) := 
-        case port_IO[0] = TRUE :
-            case 
-                c0.task_status = complete : {TRUE,FALSE}; -- 열든 말든 
-                TRUE : port_IO[0]; -- c0.task_status 가 아니면 유지 
-            esac;
-            port_IO[0] = FALSE : 
-                case 
-                --  수정 필요 START
-                    port_IO[1] = TRUE | port_IO[2] = TRUE | port_IO[3] = TRUE 
-                    : FALSE;
-                    port_IO[1] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : 
-                        case
-                            arbiter = p0 : TRUE;
-                            TRUE : FALSE;  
-                        esac;
-                --  수정 필요 END
+            case
+                c0.task_status = complete : FALSE; -- 종료 되었을 때  
+                !(c0.task_status = complete) : 
+                case
+                    arbiter = none | arbiter = wait : port_IO[0]; 
+                    arbiter = p0 : TRUE; TRUE : FALSE; 
                 esac;
-        esac;
-
+            esac;
     init(port_IO[1]) := FALSE;
     next(port_IO[1]) := 
-        case port_IO[1] = TRUE :
             case
-                c1.task_status = complete : {TRUE,FALSE};
-                TRUE : port_IO[1];
-            esac; 
-            port_IO[1] = FALSE :
-                case 
-                --  수정 필요 START
-                 port_IO[0] = TRUE | port_IO[2] = TRUE | port_IO[3] = TRUE 
-                    : FALSE;
-                    port_IO[0] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : 
-                        case
-                            arbiter = p1 : TRUE;
-                            TRUE : FALSE;  
-                        esac;
-                --  수정 필요 END
+                c1.task_status = complete : FALSE;
+                !(c1.task_status = complete):
+                case
+                    arbiter = none | arbiter = wait : port_IO[1]; 
+                    arbiter = p1 : TRUE; TRUE : FALSE; 
                 esac;
-            TRUE : port_IO[1]; 
-        esac;
+            esac;
     init(port_IO[2]) := FALSE;
     next(port_IO[2]) := 
-        case port_IO[2] = TRUE :
-            case
-                c1.task_status = complete : {TRUE, FALSE};
-                TRUE : port_IO[2];
-            esac; 
-            port_IO[2] = FALSE : 
-                case 
-                    --  수정 필요 START
-                    port_IO[0] = TRUE | port_IO[1] = TRUE | port_IO[3] = TRUE 
-                    : FALSE;
-                    port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[3] = FALSE : 
-                        case
-                            arbiter = p2 : TRUE;
-                            TRUE : FALSE;  
-                        esac;
-                    --  수정 필요 END
+            case 
+                c2.task_status = complete : FALSE;
+                !(c2.task_status = complete) : 
+                case
+                    arbiter = none | arbiter = wait : port_IO[2]; 
+                    arbiter = p2 : TRUE; TRUE : FALSE; 
                 esac;
-            TRUE : port_IO[2]; 
-        esac;
+            esac;
     init(port_IO[3]) := FALSE;
     next(port_IO[3]) := 
-        case port_IO[3] = TRUE :
-            case
-                c1.task_status = complete : {TRUE,FALSE};
-                TRUE : port_IO[3];
-            esac; 
-            port_IO[3] = FALSE :
-                case 
-                    --  수정 필요 START
-
-                    port_IO[0] = TRUE | port_IO[1] = TRUE | port_IO[2] = TRUE 
-                    : FALSE;
-                    port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[2] = FALSE : 
-                        case
-                            arbiter = p3 : TRUE;
-                            TRUE : FALSE;  
-                        esac;
-                    --  수정 필요 END
+            case 
+                c3.task_status = complete : FALSE;
+                !(c3.task_status = complete) : 
+                case
+                    arbiter = none | arbiter = wait : port_IO[3]; 
+                    arbiter = p3 : TRUE; TRUE : FALSE; 
                 esac;
-            TRUE : port_IO[3]; 
-        esac;
-
+            esac;
     init(BUS_CMD) := none;
     next(BUS_CMD) := 
         case
-            port_IO[0] = TRUE : c0.bus_req;
-            port_IO[1] = TRUE : c1.bus_req;
-            port_IO[2] = TRUE : c2.bus_req;
-            port_IO[3] = TRUE : c3.bus_req;
-            TRUE : none;
+            done[0] = TRUE | done[1] = TRUE | done[2] = TRUE | done[3] = TRUE : none;
+            port_IO[0] = TRUE & c0.task_status = wait : c0.bus_req; 
+            port_IO[1] = TRUE & c1.task_status = wait : c1.bus_req; 
+            port_IO[2] = TRUE & c2.task_status = wait : c2.bus_req; 
+            port_IO[3] = TRUE & c3.task_status = wait : c3.bus_req; 
+            TRUE : none; 
         esac;
 -- END main ******************************************************************
 
 -- CTL CHECK SPEC
 -- COMPELTE
---SPEC AG!(c0.state = modified & c1.state = modified)
---SPEC AG !(c0.mode = type1 & c1.mode = type1 & c2.mode = type1)
 
-SPEC AG!(c0.state = modified & c1.state = exclusive)
+-- 두개 비교 
+-- 1. 
+-- SPEC AG!(c0.state = modified & c1.state = modified) 
+-- 2. 
+-- SPEC AG!(c1.state = modified & c2.state = shared)
+-- 3. 
+-- SPEC AG!(c2.state = exclusive & c3.state = exclusive)
+-- 4. 
+-- SPEC AG!(c3.state = exclusive & c0.state = shared)
 
--- SPEC AG!(c0.port_IO = TRUE & c1.port_IO = TRUE & c2.port_IO = TRUE) 
+-- 세개 이상 비교 
+-- 1
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid) 
 
+-- 2
+-- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = modified)
+-- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = exclusive)
+-- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = shared)
+-- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = invalid)
 
+-- 3
+-- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = modified)
+-- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = exclusive)
+-- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = shared)
+-- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = invalid)
 
--- SPEC AG!(c0.state = modified & c1.state = shared)
--- SPEC AG!(c0.state = exclusive & c1.state = shared)
--- SPEC AG!(c0.state = exclusive & c1.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = exclusive & c2.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = exclusive & c2.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = shared & c2.state = shared)
+-- 4
+-- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = modified)
+-- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = exclusive)
+-- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = shared)
+-- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = invalid)
 
--- // 수정할 부분 ack 부분 , port 부분
+-- 4개 비교
+-- 1.1 
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = modified)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = exclusive)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = shared)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = invalid)
+
+-- 1.2 
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = modified)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = exclusive)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = shared)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = invalid)
+
+-- 1.3
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = modified)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = exclusive)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = shared)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = invalid)
+
+-- 1.4 
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = modified)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = exclusive)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = shared)
+SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = invalid)
+
+-- 기타 
+-- SPEC AG!(c0.state = modified & c1.state = invalid & c2.state = exclusive & c3.state = shared) 
+-- SPEC AG!(c0.state = shared & c1.state = invalid & c2.state = invalid)
+
+-- port 관련 spec
+-- SPEC AG!(c0.port_IO = TRUE & c1.port_IO = TRUE & c2.port_IO = TRUE &  c3.port_IO = TRUE)
+-- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE & c3.port_IO = TRUE)
+-- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE)
+
+-- uncomplete

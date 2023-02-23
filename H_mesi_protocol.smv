@@ -1,0 +1,159 @@
+MODULE CPU(BUS-LINE, CACHE-LINE,DONE)
+
+   VAR
+      master : boolean;
+      request   : {none, write, read};
+      bus-line : {idle, read, read-rdx, invalidate};
+      done : {none, wait, finish};
+
+      state   : {invalid, shared, exclusive, modified, i2m, i2e, i2s, s2m};
+
+   DEFINE
+      --readable := ((state = shared)       | (state = exclusive)    | (state = modified));
+      --writable := ((state = exclusive)    | (state = modified));
+
+   ASSIGN
+      init(request) := none;
+      next(request) :=
+      case
+         master : {none, write, read};
+         TRUE : request;
+      esac;
+
+      init(done) := none;
+      next(done) :=
+      case
+         done = finish : none;
+         done = wait :
+            case
+               state = i2m : finish;
+               state = i2e : finish;
+               state = i2s : finish;
+               state = s2m : finish;
+               TRUE : done;
+            esac;
+         done = none & !(request = none) : wait;
+         TRUE : done;
+      esac;
+
+      init(bus-line) := idle;
+      next(bus-line) :=
+         case
+         master :
+            case
+               state = invalid & request = write : read-rdx;
+               state = shared & request = write : invalidate;
+               TRUE : bus-line;
+            esac;
+         done = finish : idle;
+         TRUE : bus-line;
+         esac;
+
+      init(state) := invalid;
+      next(state) :=
+      case
+         master :
+         case
+            -- invalid
+            state = invalid    & request = write    : i2m; --modified            -- read-rdx
+            state = invalid    & request = read :                           -- read
+            case
+               CACHE-LINE = invalid   : i2e;
+               TRUE : i2s;
+            esac;
+            -- shared
+            state = shared       & request = write    : s2m;                  -- invalidate
+            state = shared       & request = read    : shared;                  -- X
+            -- exclusive
+            state = exclusive   & request = write    : modified;                  -- X
+            state = exclusive   & request = read    : exclusive;               -- X
+            -- modified
+            state = modified   & request = write    : modified;                  -- X
+            state = modified   & request = read    : modified;                  -- X
+
+            -- transition finish
+            state = i2m : modified;
+            state = i2e : exclusive;
+            state = i2s : shared;
+            state = s2m : modified;
+
+            TRUE : state;
+         esac;
+         -- BUS-LINE
+         -- shared
+         state = shared      & BUS-LINE = read : shared;
+         state = shared      & BUS-LINE = read-rdx : invalid;
+         state = shared      & BUS-LINE = invalidate : invalid;
+         -- exclusive
+         state = exclusive    & BUS-LINE = read : shared;
+         state = exclusive    & BUS-LINE = read-rdx : invalid;
+         state = exclusive    & BUS-LINE = invalidate : invalid;
+         -- modified
+         state = modified    & BUS-LINE = read : shared;
+         state = modified    & BUS-LINE = read-rdx : invalid;
+         state = modified    & BUS-LINE = invalidate : invalid;
+         TRUE : state;
+
+      esac;
+
+MODULE main
+   VAR
+      BUS-LINE : {idle, read, read-rdx, invalidate};
+      CACHE-LINE : {invalid, shared, exclusive, modified};
+      DONE : {none, wait, finish};
+
+      cpu1 : CPU(BUS-LINE, CACHE-LINE, DONE);
+      cpu2 : CPU(BUS-LINE, CACHE-LINE, DONE);
+
+   ASSIGN
+   DONE :=
+      case
+      !(cpu1.done = none) : cpu1.done;
+      !(cpu2.done = none) : cpu2.done;
+      TRUE : none;
+      esac;
+
+   cpu1.master :=
+   case
+      DONE = finish : {FALSE,TRUE};
+      TRUE : cpu1.master;
+   esac;
+
+   cpu2.master :=
+      case
+      cpu1.master : FALSE;
+      TRUE : {FALSE,TRUE};
+      esac;
+
+   BUS-LINE := 
+      case
+      cpu2.bus-line = idle : cpu1.bus-line;
+      cpu1.bus-line = idle : cpu2.bus-line;
+      TRUE : {idle, read, read-rdx, invalidate};
+      esac;
+
+   CACHE-LINE :=
+      case
+         cpu1.state = shared | cpu2.state = shared : shared;
+         cpu1.state = exclusive | cpu2.state = exclusive : exclusive;
+         cpu1.state = modified | cpu2.state = modified : modified;
+         TRUE : invalid;
+      esac;
+   
+
+   --SPEC
+   --AG EF (cpu1.readable)
+   --SPEC
+   --AG EF (cpu1.writable)
+   --SPEC
+   --AG !(cpu1.writable & cpu2.writable)
+
+
+   SPEC AG !(EF (cpu1.state = modified & cpu2.state = modified))
+   SPEC AG !(EF (cpu1.state = modified & cpu2.state = exclusive))
+   SPEC AG !(EF (cpu1.state = exclusive & cpu2.state = modified))
+   SPEC AG !(EF (cpu1.state = modified & cpu2.state = shared))
+   SPEC AG !(EF (cpu1.state = shared & cpu2.state = modified))
+   SPEC AG !(EF (cpu1.state = exclusive & cpu2.state = exclusive))
+   SPEC AG !(EF (cpu1.state = exclusive & cpu2.state = shared))
+   SPEC AG !(EF (cpu1.state = shared & cpu2.state = exclusive))
