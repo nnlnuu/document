@@ -2,50 +2,49 @@
 -- Single cache line per processor with 1-bit data
 -- Hyeonwoo 2/14/2023,2/22/2023
 -- ******************************************************************
-MODULE Cache(port_IO,bus_cmd,ack,done)
--- port_IO : 통로를 open,block 하는 param / bus_cmd: bus command snooping / ack 다른 cache state 확인 / 다른 cache 작업 확인 
+MODULE Cache(port_IO,bus_cmd,ack,done) -- port_IO : 통로를 open,block 하는 param / bus_cmd: bus command snooping / ack 다른 cache state 확인 / 다른 cache 작업 확인 
 VAR 
     state : {modified,exclusive, shared, invalid, -- 기존 state 
             modified_done,exclusive_done,shared_done,invalid_done, -- 완료된 것을 알려주는 state  
-            i_pending,m_pending,s_pending}; -- transient state (pending state) 
+            i_pending,m_pending,s_pending, -- transient state (pending state) 
+            error_state}; 
     cpu_request : {cpu_wr,cpu_rd,none}; -- cpu가 -> cache로 보내는 요청
-    task_status : {idle,rd_status,wr_status,wait,complete}; -- cpu 별 작업 상태 
-    --/ idle 는 준비상태 , rd,wr,wait는 진행 상태 , complete는 state 가 변경되고 완료된 상태
+    task_status : {idle,rd_status,wr_status,wait,complete}; -- cpu 별 작업 상태 --/ idle 는 준비상태 , rd,wr,wait는 진행 상태 , complete는 state 가 변경되고 완료된 상태
     bus_req : {bus_rd,bus_rdx,invalidate,none}; -- task_status 가 wr_status 또는 rd_status 일때 버스로 보내지는 요청
-DEFINE 
-    -- CRAT := cpu_request = cpu_rd & ack = TRUE; CRAF := cpu_request = cpu_rd & ack = FALSE;
-    -- CWAT := cpu_request = cpu_wr & ack = TRUE; CWAF := cpu_request = cpu_wr & ack = FALSE;
-    -- STATE_DONE := state = modified_done | state = exclusive_done | state = shared_done | state = invalid_done;
-    -- STATE_PENDING := state = i_pending | state = m_pending | state = s_pending;
 ASSIGN
     -- 확인 
     init(task_status) := idle; -- 준비 상태 
     next(task_status) :=
     case
-        state = modified_done | state = exclusive_done | state = shared_done | state = invalid_done : complete;
+        state = modified_done | state = exclusive_done | 
+        state = shared_done | state = invalid_done | done = TRUE : complete; -- done = TRUE : complete;
         task_status = complete : idle; --/ complete 다음은 항상 idle로 
-        done = TRUE : complete;
         port_IO = TRUE : -- port 가 열렸을 때 
-        case 
-            task_status = idle : 
-                case 
-                    cpu_request = none : idle;
-                    cpu_request = cpu_rd : rd_status;
-                    cpu_request = cpu_wr : wr_status;
-                esac;   
-            state = i_pending | state = m_pending | state = s_pending : wait;
-            TRUE : task_status; 
-        esac; 
+            case 
+                task_status = idle : 
+                    case 
+                        cpu_request = none : idle;
+                        cpu_request = cpu_rd : rd_status;
+                        cpu_request = cpu_wr : wr_status;
+                    esac;
+                -- task_status 가 Idle 이 아니면 rd,wr,wait, 
+                -- complete은 밖에서 해결 
+                
+                state = i_pending | state = m_pending | state = s_pending : wait;
+                
+                
+                TRUE : task_status; 
+            esac; 
         port_IO = FALSE : -- bus 로 부터 받은 데이터 존재 
-        case
-            task_status = idle : 
-                case 
-                    bus_cmd = bus_rd : rd_status; 
-                    bus_cmd = bus_rdx : wr_status;
-                    TRUE : task_status;
-                esac;
-            TRUE: task_status;        
-        esac;
+            case
+                task_status = idle : 
+                    case 
+                        bus_cmd = bus_rd : rd_status; 
+                        bus_cmd = bus_rdx : wr_status;
+                        TRUE : task_status;
+                    esac;
+                TRUE: task_status;        
+            esac;
         -- 빼도 될듯?
         -- TRUE: task_status;
     esac;
@@ -319,78 +318,90 @@ ASSIGN
 -- END main ******************************************************************
 
 -- CTL CHECK SPEC
--- COMPELTE
+-- safety property 
+--  COMPELTE
+    -- 두개 비교 
+    -- 1. 
+    -- SPEC AG!(c0.state = modified & c1.state = modified) 
+    -- 2. 
+    -- SPEC AG!(c1.state = modified & c2.state = shared)
+    -- 3. 
+    -- SPEC AG!(c2.state = exclusive & c3.state = exclusive)
+    -- 4. 
+    -- SPEC AG!(c3.state = exclusive & c0.state = shared)
 
--- 두개 비교 
--- 1. 
-SPEC AG!(c0.state = modified & c1.state = modified) 
--- 2. 
-SPEC AG!(c1.state = modified & c2.state = shared)
--- 3. 
-SPEC AG!(c2.state = exclusive & c3.state = exclusive)
--- 4. 
-SPEC AG!(c3.state = exclusive & c0.state = shared)
+    -- 세개 이상 비교 
+    -- 1
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid) 
 
--- 세개 이상 비교 
--- 1
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid) 
+    -- 2
+    -- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = modified)
+    -- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = exclusive)
+    -- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = shared)
+    -- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = invalid)
 
--- 2
--- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = modified)
--- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = exclusive)
--- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = shared)
--- SPEC AG!(c1.state = modified & c2.state = shared & c3.state = invalid)
+    -- 3
+    -- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = modified)
+    -- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = exclusive)
+    -- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = shared)
+    -- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = invalid)
 
--- 3
--- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = modified)
--- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = exclusive)
--- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = shared)
--- SPEC AG!(c2.state = exclusive & c3.state = exclusive & c0.state = invalid)
+    -- 4
+    -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = modified)
+    -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = exclusive)
+    -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = shared)
+    -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = invalid)
 
--- 4
--- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = modified)
--- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = exclusive)
--- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = shared)
--- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = invalid)
+    -- -- 4개 비교
+    -- -- 1.1 
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = modified)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = exclusive)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = shared)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = invalid)
 
--- -- 4개 비교
--- -- 1.1 
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = modified)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = invalid)
+    -- -- 1.2 
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = modified)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = exclusive)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = shared)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = invalid)
 
--- -- 1.2 
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = modified)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = invalid)
+    -- -- 1.3
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = modified)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = exclusive)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = shared)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = invalid)
 
--- -- 1.3
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = modified)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = invalid)
+    -- -- 1.4 
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = modified)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = exclusive)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = shared)
+    -- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = invalid)
 
--- -- 1.4 
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = modified)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = exclusive)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = shared)
--- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = invalid)
+    -- 기타 
+    -- SPEC AG!(c0.state = modified & c1.state = invalid & c2.state = exclusive & c3.state = shared) 
+    -- SPEC AG!(c0.state = shared & c1.state = invalid & c2.state = invalid)
 
--- 기타 
--- SPEC AG!(c0.state = modified & c1.state = invalid & c2.state = exclusive & c3.state = shared) 
--- SPEC AG!(c0.state = shared & c1.state = invalid & c2.state = invalid)
+    -- port 관련 spec
+    -- SPEC AG!(c0.port_IO = TRUE & c1.port_IO = TRUE & c2.port_IO = TRUE &  c3.port_IO = TRUE)
+    -- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE & c3.port_IO = TRUE)
+    -- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE)
 
--- port 관련 spec
--- SPEC AG!(c0.port_IO = TRUE & c1.port_IO = TRUE & c2.port_IO = TRUE &  c3.port_IO = TRUE)
--- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE & c3.port_IO = TRUE)
--- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE)
+--  uncomplete
 
--- uncomplete
+
 -- liveness property!!
-SPEC AG((c0.state = invalid & c0.cpu_request = cpu_rd) ->AF(c0.state = shared | c0.state = exclusive))
--- error state 
+--  complete 
+    -- SPEC AG((c0.state = invalid & c0.cpu_request = cpu_rd) ->AF(c0.state = shared | c0.state = exclusive))
+    -- error state 
+    -- SPEC AG((c0.state = invalid & c0.cpu_request = cpu_wr) ->AF(c0.state = modified))
+    -- SPEC AG((c0.state = shared & c1.state = shared & c0.cpu_request = cpu_wr) ->AF(c0.state = modified & c1.state = invalid))
+    -- SPEC AG((c0.state = invalid & c1.state = exclusive & c0.cpu_request = cpu_wr) ->AF(c0.state = shared & c1.state = shared))
+    -- SPEC AG((c0.state = modified & c0.cpu_request = cpu_rd) ->AF(c0.state = modified))
+    -- SPEC AG((c0.state = modified & c0.cpu_request = cpu_wr) ->AF(c0.state = modified))
+    -- SPEC AG((c0.state = modified & c1.state = invalid & c1.cpu_request = cpu_rd) ->AF(c0.state = shared & c1.state = shared))
+    -- SPEC AG((c0.state = shared & c0.cpu_request = cpu_wr & c1.state = shared ) ->AF(c0.state = modified & c1.state = invalid))
+    
+-- 
