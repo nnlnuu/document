@@ -46,7 +46,8 @@ ASSIGN
                 esac;
             TRUE: task_status;        
         esac;
-        TRUE: task_status;
+        -- 빼도 될듯?
+        -- TRUE: task_status;
     esac;
     init(cpu_request) := none;    
     next(cpu_request):= 
@@ -78,7 +79,8 @@ ASSIGN
                     task_status = complete : none;
                     TRUE : bus_req;
                 esac;
-            TRUE : bus_req;
+            -- 빼도 될듯한                
+            -- TRUE : bus_req;
         esac;
     init(state) := invalid;
     next(state) := 
@@ -170,7 +172,8 @@ ASSIGN
                     task_status = wr_status | task_status = invalidate : invalid_done;
                     TRUE : state; 
                 esac;
-            TRUE : state;
+        -- 빼도 될듯한 
+        -- TRUE : state;
         esac; 
 -- END Cache
 -- START main ******************************************************************
@@ -189,16 +192,20 @@ DEFINE
     ARBITER_ON := arbiter = p0 | arbiter = p1 | arbiter = p2 | arbiter = p3;
 ASSIGN
     done[0] :=  case
-            c1.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+            c1.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; 
+            TRUE : FALSE;
                 esac;
     done[1] :=  case
-            c0.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+            c0.task_status = complete & c2.task_status = complete & c3.task_status = complete : TRUE; 
+            TRUE : FALSE;
                 esac;
     done[2] :=  case
-            c1.task_status = complete & c0.task_status = complete & c3.task_status = complete : TRUE; TRUE : FALSE;
+            c1.task_status = complete & c0.task_status = complete & c3.task_status = complete : TRUE; 
+            TRUE : FALSE;
                 esac;
     done[3] :=  case
-            c1.task_status = complete & c2.task_status = complete & c0.task_status = complete : TRUE; TRUE : FALSE;
+            c1.task_status = complete & c2.task_status = complete & c0.task_status = complete : TRUE; 
+            TRUE : FALSE;
                 esac;
     init(arbiter) := none;
     next(arbiter) := 
@@ -209,6 +216,7 @@ ASSIGN
             arbiter = wait :
                 case
                     port_IO[0] = FALSE & port_IO[1] = FALSE & port_IO[2] = FALSE & port_IO[3] = FALSE : none;
+                    -- 나머지는 어떤 상황들인건지?
                     TRUE : wait;
                 esac;
         esac;    
@@ -219,6 +227,7 @@ ASSIGN
     next(ack[0]) := case
                     c1.state = shared | c2.state = shared | c3.state = shared |
                     c1.state = shared_done | c2.state = shared_done | c3.state = shared_done : TRUE;
+                    -- 나머지는 어떤 상황들인건지 
                     TRUE : FALSE;
                     -- c1.state = invalid | c2.state = invalid | c3.state = invalid 
                     -- | c1.state = invalid_done | c2.state = invalid_done | c3.state = invalid_done : FALSE;
@@ -228,6 +237,7 @@ ASSIGN
     next(ack[1]):= case
                     c0.state = shared | c2.state = shared | c3.state = shared |
                     c0.state = shared_done | c2.state = shared_done | c3.state = shared_done : TRUE;
+                    -- 나머지는 어떤 상황들인건지 
                     TRUE : FALSE;
                     -- c0.state = invalid | c2.state = invalid | c3.state = invalid 
                     -- | c0.state = invalid_done | c2.state = invalid_done | c3.state = invalid_done : FALSE;
@@ -237,6 +247,7 @@ ASSIGN
     next(ack[2]) := case
                     c1.state = shared | c3.state = shared | c0.state = shared |
                     c1.state = shared_done | c3.state = shared_done | c0.state = shared_done : TRUE;
+                    -- 나머지는 어떤 상황들인건지 
                     TRUE : FALSE;
                     -- c0.state = invalid | c1.state = invalid | c3.state = invalid 
                     -- | c0.state = invalid_done | c1.state = invalid_done | c3.state = invalid_done : FALSE;
@@ -246,6 +257,7 @@ ASSIGN
     next(ack[3]):= case
                     c1.state = shared | c2.state = shared | c0.state = shared |
                     c1.state = shared_done | c2.state = shared_done | c0.state = shared_done : TRUE;
+                    -- 나머지는 어떤 상황들인건지 
                     TRUE : FALSE; 
                     -- c0.state = invalid | c1.state = invalid | c2.state = invalid 
                     -- | c0.state = invalid_done | c1.state = invalid_done | c2.state = invalid_done : FALSE;
@@ -269,7 +281,8 @@ ASSIGN
                 !(c1.task_status = complete):
                 case
                     arbiter = none | arbiter = wait : port_IO[1]; 
-                    arbiter = p1 : TRUE; TRUE : FALSE; 
+                    arbiter = p1 : TRUE; 
+                    TRUE : FALSE; 
                 esac;
             esac;
     init(port_IO[2]) := FALSE;
@@ -279,7 +292,8 @@ ASSIGN
                 !(c2.task_status = complete) : 
                 case
                     arbiter = none | arbiter = wait : port_IO[2]; 
-                    arbiter = p2 : TRUE; TRUE : FALSE; 
+                    arbiter = p2 : TRUE; 
+                    TRUE : FALSE; 
                 esac;
             esac;
     init(port_IO[3]) := FALSE;
@@ -309,13 +323,13 @@ ASSIGN
 
 -- 두개 비교 
 -- 1. 
--- SPEC AG!(c0.state = modified & c1.state = modified) 
+SPEC AG!(c0.state = modified & c1.state = modified) 
 -- 2. 
--- SPEC AG!(c1.state = modified & c2.state = shared)
+SPEC AG!(c1.state = modified & c2.state = shared)
 -- 3. 
--- SPEC AG!(c2.state = exclusive & c3.state = exclusive)
+SPEC AG!(c2.state = exclusive & c3.state = exclusive)
 -- 4. 
--- SPEC AG!(c3.state = exclusive & c0.state = shared)
+SPEC AG!(c3.state = exclusive & c0.state = shared)
 
 -- 세개 이상 비교 
 -- 1
@@ -342,30 +356,30 @@ ASSIGN
 -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = shared)
 -- SPEC AG!(c3.state = exclusive & c0.state = shared & c1.state = invalid)
 
--- 4개 비교
--- 1.1 
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = modified)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = exclusive)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = shared)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = invalid)
+-- -- 4개 비교
+-- -- 1.1 
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = modified)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = modified & c3.state = invalid)
 
--- 1.2 
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = modified)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = exclusive)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = shared)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = invalid)
+-- -- 1.2 
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = modified)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = exclusive & c3.state = invalid)
 
--- 1.3
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = modified)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = exclusive)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = shared)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = invalid)
+-- -- 1.3
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = modified)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = shared & c3.state = invalid)
 
--- 1.4 
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = modified)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = exclusive)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = shared)
-SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = invalid)
+-- -- 1.4 
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = modified)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = exclusive)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = shared)
+-- SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.state = invalid)
 
 -- 기타 
 -- SPEC AG!(c0.state = modified & c1.state = invalid & c2.state = exclusive & c3.state = shared) 
@@ -377,3 +391,6 @@ SPEC AG!(c0.state = modified & c1.state = modified & c2.state = invalid & c3.sta
 -- SPEC AG!(c0.port_IO = TRUE & c2.port_IO = TRUE)
 
 -- uncomplete
+-- liveness property!!
+SPEC AG((c0.state = invalid & c0.cpu_request = cpu_rd) ->AF(c0.state = shared | c0.state = exclusive))
+-- error state 
