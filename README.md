@@ -1,4 +1,4 @@
-# document
+# Formal Verification Project
 Apply Nusmv to Mesi protocol
 
 ## Nusmv
